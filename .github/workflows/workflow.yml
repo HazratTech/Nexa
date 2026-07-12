@@ -62,8 +62,8 @@ jobs:
           DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
           EOF
 
-          docker compose down --remove-orphans || true
-          docker compose up -d
+          docker-compose down --remove-orphans || true
+          docker-compose up -d
           echo "🚀 Nexa Bot deployed successfully"
 
       - name: Verify deployment
