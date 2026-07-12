@@ -1,7 +1,7 @@
 services:
   nexa-bot:
     container_name: Nexa
-    build: .
+    image: ${DOCKERHUB_USERNAME}/nexa-bot:latest
     restart: unless-stopped
     env_file:
       - /home/envs/nexa.env

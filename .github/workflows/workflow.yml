@@ -30,10 +30,13 @@ jobs:
     needs: build
 
     env:
-      CONTAINER: Nexa
+      DEPLOY_DIR: /home/nexa
       ENV_FILE: /home/envs/nexa.env
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Verify ENV file
         run: |
           if [ ! -f ${{ env.ENV_FILE }} ]; then
@@ -42,32 +45,35 @@ jobs:
           fi
           echo "✅ ENV file verified"
 
+      - name: Prepare deploy directory
+        run: |
+          mkdir -p ${{ env.DEPLOY_DIR }}
+          cp docker-compose.yml ${{ env.DEPLOY_DIR }}/docker-compose.yml
+
       - name: Pull latest Docker image
         run: |
           docker pull ${{ secrets.DOCKERHUB_USERNAME }}/nexa-bot:latest
 
-      - name: Stop and remove existing container
+      - name: Deploy with Docker Compose
+        working-directory: ${{ env.DEPLOY_DIR }}
         run: |
-          docker stop ${{ env.CONTAINER }} || true
-          docker rm ${{ env.CONTAINER }} || true
+          # Create a .env file that docker-compose can reference
+          cat > .env <<EOF
+          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          EOF
 
-      - name: Run new container
-        run: |
-          docker run -d \
-            --name ${{ env.CONTAINER }} \
-            --env-file ${{ env.ENV_FILE }} \
-            --restart unless-stopped \
-            ${{ secrets.DOCKERHUB_USERNAME }}/nexa-bot:latest
+          docker compose down --remove-orphans || true
+          docker compose up -d
           echo "🚀 Nexa Bot deployed successfully"
 
       - name: Verify deployment
         run: |
           sleep 5
-          docker ps | grep ${{ env.CONTAINER }}
-          docker logs --tail 20 ${{ env.CONTAINER }}
+          docker ps | grep -E "Nexa|nexa-redis"
+          docker logs --tail 20 Nexa
 
       - name: On failure — fetch logs
         if: failure()
         run: |
           echo "❌ Deployment failed — fetching logs..."
-          docker logs ${{ env.CONTAINER }} || true
+          docker logs Nexa || true
