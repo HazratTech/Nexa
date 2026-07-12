@@ -29,47 +29,44 @@ jobs:
     runs-on: self-hosted
     needs: build
 
-    env:
-      DEPLOY_DIR: /home/nexa
-      ENV_FILE: /home/envs/nexa.env
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Verify ENV file
-        run: |
-          if [ ! -f ${{ env.ENV_FILE }} ]; then
-            echo "❌ Missing nexa.env at ${{ env.ENV_FILE }}"
-            exit 1
-          fi
-          echo "✅ ENV file verified"
-
-      - name: Prepare deploy directory
-        run: |
-          mkdir -p ${{ env.DEPLOY_DIR }}
-          cp docker-compose.yml ${{ env.DEPLOY_DIR }}/docker-compose.yml
-
-      - name: Pull latest Docker image
+      - name: Pull and restart containers
         run: |
           docker pull ${{ secrets.DOCKERHUB_USERNAME }}/nexa-bot:latest
 
-      - name: Deploy with Docker Compose
-        working-directory: ${{ env.DEPLOY_DIR }}
-        run: |
-          # Create a .env file that docker-compose can reference
-          cat > .env <<EOF
-          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
-          EOF
+          docker stop Nexa || true
+          docker rm Nexa || true
 
-          docker-compose down --remove-orphans || true
-          docker-compose up -d
-          echo "🚀 Nexa Bot deployed successfully"
+          docker stop nexa-redis || true
+          docker rm nexa-redis || true
+
+          docker network create nexa-network || true
+
+          docker run -d \
+            --name nexa-redis \
+            --network nexa-network \
+            --restart unless-stopped \
+            redis:7-alpine \
+            redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+
+          sleep 3
+
+          docker run -d \
+            --name Nexa \
+            --network nexa-network \
+            -e REDIS_HOST="nexa-redis" \
+            -e REDIS_PORT="6379" \
+            --env-file /home/envs/nexa.env \
+            -v /home/nexa/logs:/app/logs \
+            --restart unless-stopped \
+            ${{ secrets.DOCKERHUB_USERNAME }}/nexa-bot:latest
+
+          sleep 5
+          docker ps | grep -E "Nexa|nexa-redis"
+          docker exec nexa-redis redis-cli ping
 
       - name: Verify deployment
         run: |
-          sleep 5
-          docker ps | grep -E "Nexa|nexa-redis"
           docker logs --tail 20 Nexa
 
       - name: On failure — fetch logs
