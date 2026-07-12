@@ -10,9 +10,9 @@ services:
     networks:
       - nexa-network
     depends_on:
-      - redis
+      - nexa-redis
 
-  redis:
+  nexa-redis:
     image: redis:7-alpine
     container_name: nexa-redis
     restart: unless-stopped
