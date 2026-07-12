@@ -177,6 +177,7 @@ class AntiRaidSettings(BaseModel):
     dm_on_kick: bool = True
     dm_message: str = "You were kicked due to a raid detection. Please rejoin later."
     log_channel_id: Optional[str] = None
+    manual_lockdown_active: bool = False
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

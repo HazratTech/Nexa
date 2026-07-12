@@ -17,9 +17,9 @@ class AntiSpamService:
     @classmethod
     async def get_settings(cls, guild_id: int) -> AntiSpamSettings:
         collection = cls.get_settings_collection()
-        data = await collection.find_one({"guild_id": guild_id})
+        data = await collection.find_one({"guild_id": {"$in": [guild_id, str(guild_id)]}})
         if data:
-            # Pydantic validation handles aliases or missing values gracefully
+            data["guild_id"] = int(data["guild_id"])
             return AntiSpamSettings(**data)
         
         # Create and save default settings
@@ -31,12 +31,18 @@ class AntiSpamService:
     async def update_settings(cls, guild_id: int, **fields) -> bool:
         collection = cls.get_settings_collection()
         fields["updated_at"] = datetime.now()
-        result = await collection.update_one(
-            {"guild_id": guild_id},
-            {"$set": fields},
-            upsert=True
-        )
-        return result.modified_count > 0 or result.upserted_id is not None
+        
+        exists = await collection.find_one({"guild_id": {"$in": [guild_id, str(guild_id)]}})
+        if exists:
+            result = await collection.update_one(
+                {"_id": exists["_id"]},
+                {"$set": fields}
+            )
+            return result.modified_count > 0
+        else:
+            fields["guild_id"] = guild_id
+            result = await collection.insert_one(fields)
+            return result.inserted_id is not None
 
     @classmethod
     async def log_action(cls, log_model: AntiSpamLog) -> bool:

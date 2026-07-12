@@ -212,15 +212,49 @@ class AntiRaidCog(commands.Cog):
 
     @tasks.loop(seconds=15)
     async def auto_recovery_loop(self):
-        """Monitors all guilds and automatically de-escalates lockdowns if their timers expired."""
+        """Monitors all guilds and automatically de-escalates lockdowns if their timers expired, or syncs dashboard manual toggles."""
         for guild in self.bot.guilds:
             try:
+                settings = await AntiRaidService.get_settings(guild.id)
+                db_lockdown_active = settings.manual_lockdown_active
+                
+                # Retrieve current real-time raid mode
                 mode = await self.engine.get_raid_mode(guild.id)
-                if mode >= RaidMode.LOCKDOWN:
-                    # Check if timer has expired in Redis
+                
+                if db_lockdown_active and mode < RaidMode.LOCKDOWN:
+                    logger.info(f"Dashboard manual lockdown trigger detected for guild {guild.name} ({guild.id})")
+                    # Set the state in Redis
+                    await self.engine.set_raid_mode(guild.id, RaidMode.LOCKDOWN)
+                    await self.engine.extend_lockdown_timer(guild.id, settings.raid_lockdown_duration)
+                    locked_count = await self.lock_guild_channels(guild, True)
+                    
+                    if settings.auto_verify_escalation:
+                        try:
+                            await guild.edit(verification_level=discord.VerificationLevel.highest)
+                        except Exception:
+                            pass
+                    
+                    from core.models.antispam_models import AntiRaidIncident
+                    await AntiRaidService.log_incident(AntiRaidIncident(
+                        guild_id=guild.id,
+                        raid_level=int(RaidMode.LOCKDOWN),
+                        trigger_type="manual",
+                        join_count=0,
+                        window_seconds=0,
+                        actions_taken=["Manual Lockdown initiated via Web Dashboard"]
+                    ))
+                    logger.info(f"Manual lockdown initiated for guild {guild.name}. Locked down {locked_count} channels.")
+                
+                elif not db_lockdown_active and mode >= RaidMode.LOCKDOWN:
+                    logger.info(f"Dashboard manual lockdown deactivate detected for guild {guild.name} ({guild.id})")
+                    await self.deescalate_guild(guild, reason="Manual unlock from Web Dashboard")
+                
+                elif mode >= RaidMode.LOCKDOWN:
+                    # Standard auto-recovery check (expiring timer in Redis)
                     lockdown_active = await self.engine.check_lockdown_active(guild.id)
                     if not lockdown_active:
-                        logger.info(f"Auto-recovery triggered for guild {guild.name} ({guild.id})")
+                        logger.info(f"Auto-recovery timer expired for guild {guild.name} ({guild.id})")
+                        await AntiRaidService.update_settings(guild.id, manual_lockdown_active=False)
                         await self.deescalate_guild(guild, reason="Auto-recovery timer expired")
             except Exception as e:
                 logger.error(f"Error checking recovery status for guild {guild.id}: {e}")

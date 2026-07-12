@@ -40,6 +40,9 @@ class NexaBot(AutoShardedBot):
         except Exception as e:
             logger.error(f"Failed to sync commands: {e}")
 
+        # Start background command settings database synchronization
+        self.loop.create_task(self.startup_commands_sync())
+
 
     async def load_modules(self) -> None:
         """
@@ -80,7 +83,79 @@ class NexaBot(AutoShardedBot):
 
 
     async def close(self) -> None:
-        self.scheduler.shutdown()
+        if self.scheduler.running:
+            self.scheduler.shutdown()
         await RedisManager.close()
         await Database.close()
         await super().close()
+
+    async def startup_commands_sync(self) -> None:
+        await self.wait_until_ready()
+        logger.info("Bot is ready. Starting command settings database synchronization...")
+        for guild in self.guilds:
+            await self.sync_guild_commands(guild.id)
+
+    async def on_guild_join(self, guild: discord.Guild):
+        logger.info(f"Joined guild {guild.name} ({guild.id}). Syncing command tree...")
+        await self.sync_guild_commands(guild.id)
+
+    async def sync_guild_commands(self, guild_id: int) -> None:
+        import yaml
+        if not os.path.exists("commands.yaml"):
+            logger.warning("commands.yaml not found, skipping command database synchronization.")
+            return
+        try:
+            with open("commands.yaml", "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            
+            categories = config.get("categories", [])
+            db = Database.get_db()
+            command_collection = db.command_settings
+
+            for cat in categories:
+                cat_name = cat.get("name")
+                for cmd in cat.get("commands", []):
+                    cmd_name = cmd.get("name").lstrip("/")
+                    exists = await command_collection.find_one({
+                        "guild_id": str(guild_id),
+                        "command": cmd_name
+                    })
+                    
+                    cmd_payload = {
+                        "description": cmd.get("description", ""),
+                        "category": cat_name,
+                        "aliases": cmd.get("aliases", []),
+                        "usage": cmd.get("usage", ""),
+                        "output": cmd.get("output", ""),
+                        "args": cmd.get("args", []),
+                        "permissions_level": cmd.get("permissions", "everyone")
+                    }
+
+                    if exists:
+                        await command_collection.update_one(
+                            {"_id": exists["_id"]},
+                            {"$set": cmd_payload}
+                        )
+                    else:
+                        await command_collection.insert_one({
+                            "guild_id": str(guild_id),
+                            "command": cmd_name,
+                            "is_premium": False,
+                            "enabled": True,
+                            "enabled_roles": [],
+                            "disabled_roles": [],
+                            "enabled_channels": [],
+                            "disabled_channels": [],
+                            "roles_skip_limit": [],
+                            "settings": {
+                                "max_limit": 4,
+                                "auto_delete_invocation": False,
+                                "auto_delete_response": False,
+                                "auto_delete_with_invocation": False,
+                                "response_delete_delay": 5
+                            },
+                            **cmd_payload
+                        })
+            logger.info(f"Command database synchronization completed for guild {guild_id}")
+        except Exception as e:
+            logger.error(f"Failed to sync commands for guild {guild_id}: {e}")
