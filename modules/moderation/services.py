@@ -1,14 +1,13 @@
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Union
 
+import discord
 from loguru import logger
 from motor.motor_asyncio import AsyncIOMotorCollection
-import discord
 from typing_extensions import Literal
 
 from core.database import Database
-from core.models.guild_models import ModerationSettings, Roles
-from core.models.user_model import UserModel
+from core.models.guild_models import ModerationSettings
 from modules.error.custom_errors import GenericError
 from modules.guild.services import GuildService
 from modules.moderation.model import ModerationLogModel
@@ -43,39 +42,42 @@ class ModerationService:
             guild: discord.Guild,
             action: Literal["Kick", "Ban", "Mute", "UnMute", "Timeout", "Remove Timeout", "Unban", "Warn"],
             moderator: discord.Member,
-            target: discord.Member,
+            target: Union[discord.Member, discord.User],
             reason: str = None,
     ):
         guild_setting = await GuildService.get_guild_setting(guild_id=guild.id)
         if not guild_setting:
             return
-        mod_log_channel_id = guild_setting.log_channel.mod_log_channel_id
+        mod_log_channel_id = guild_setting.log_channel.mod_log_channel_id if guild_setting.log_channel else None
         if not mod_log_channel_id:
             return
 
-        channel: discord.TextChannel = guild.get_channel(mod_log_channel_id)
+        channel = guild.get_channel(mod_log_channel_id)
         if not channel:
             return
 
         color_map = {
-            "Kick": discord.Color.from_str("#F59E0B"),  # Amber (warning action)
-            "Ban": discord.Color.from_str("#DC2626"),  # Strong red (severe punishment)
-            "Warn": discord.Color.from_str("#FACC15"),  # Bright yellow (attention)
-            "Mute": discord.Color.from_str("#6366F1"),  # Indigo (temporary restriction)
-            "Unban": discord.Color.from_str("#22C55E"),  # Green (positive action)
+            "Kick": discord.Color.from_str("#F59E0B"),  # Amber
+            "Ban": discord.Color.from_str("#DC2626"),  # Red
+            "Warn": discord.Color.from_str("#FACC15"),  # Yellow
+            "Mute": discord.Color.from_str("#6366F1"),  # Indigo
+            "UnMute": discord.Color.from_str("#22C55E"),  # Green
+            "Timeout": discord.Color.from_str("#3B82F6"),  # Blue
+            "Remove Timeout": discord.Color.from_str("#10B981"),  # Emerald
+            "Unban": discord.Color.from_str("#22C55E"),  # Green
         }
 
         embed = discord.Embed(
-            title=f"🔨{action.capitalize()}",
+            title=f"🔨 {action}",
             color=color_map.get(action, discord.Color.orange()),
             timestamp=discord.utils.utcnow()
         )
-        embed.add_field(name="User", value=f"{target.name} {target.id}", inline=True)
+        embed.add_field(name="User", value=f"{target.mention} (`{target.id}`)", inline=True)
         embed.add_field(name="Moderator", value=f"{moderator.mention}", inline=True)
-        embed.add_field(name="Reason", value=reason, inline=False)
-        embed.set_thumbnail(url=target.avatar.url if target.avatar else None)
+        embed.add_field(name="Reason", value=reason or "No reason provided.", inline=False)
+        embed.set_thumbnail(url=target.display_avatar.url)
 
-        asyncio.create_task(channel.send(embed=embed))
+        await channel.send(embed=embed)
 
     @classmethod
     async def get_or_create_mute_role(cls, guild: discord.Guild) -> discord.Role:

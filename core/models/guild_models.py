@@ -128,3 +128,56 @@ class ModerationSettings(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now)
 
 
+class AntiSpamAction(BaseModel):
+    violation_count: int
+    action: str
+    duration: int = 300
+
+
+class AntiSpamSettings(BaseModel):
+    guild_id: int
+    enabled: bool = False
+    message_rate_limit: int = 5
+    message_rate_window: int = 5
+    duplicate_threshold: int = 3
+    duplicate_window: int = 30
+    max_mentions_per_message: int = 5
+    max_mentions_per_window: int = 10
+    mention_window: int = 15
+    max_emojis_per_message: int = 15
+    max_newlines: int = 20
+    max_stickers_per_window: int = 5
+    sticker_window: int = 10
+    max_attachments_per_window: int = 5
+    attachment_window: int = 10
+    actions: List[AntiSpamAction] = Field(default_factory=lambda: [
+        AntiSpamAction(violation_count=1, action="delete"),
+        AntiSpamAction(violation_count=2, action="delete+warn"),
+        AntiSpamAction(violation_count=3, action="timeout", duration=300),
+        AntiSpamAction(violation_count=5, action="kick"),
+    ])
+    ignored_channels: List[str] = Field(default_factory=list)
+    ignored_roles: List[str] = Field(default_factory=list)
+    whitelisted_users: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class AntiRaidSettings(BaseModel):
+    guild_id: int
+    enabled: bool = False
+    join_rate_limit: int = 10
+    join_rate_window: int = 10
+    min_account_age_days: int = 7
+    account_age_action: str = "kick"
+    no_avatar_action: str = "alert"
+    raid_mode_action: str = "lockdown"
+    raid_lockdown_duration: int = 300
+    auto_verify_escalation: bool = True
+    dm_on_kick: bool = True
+    dm_message: str = "You were kicked due to a raid detection. Please rejoin later."
+    log_channel_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+

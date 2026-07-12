@@ -9,7 +9,24 @@ services:
       - ./logs:/app/logs
     networks:
       - nexa-network
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexa-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    networks:
+      - nexa-network
 
 networks:
   nexa-network:
     driver: bridge
+
+volumes:
+  redis_data:

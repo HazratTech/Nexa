@@ -20,37 +20,89 @@ class EmbedBuilder(commands.Cog):
         def replace_tokens(text: str) -> str:
             if not text:
                 return ""
-            return (
-                text
-                .replace("{user}", getattr(user, "mention", "{user}") if user else "{user}")
-                .replace("{username}", user.display_name if user else "{username}")
-                .replace("{avatar}", str(user.avatar.url) if user and user.avatar else " ")
-                .replace("{owner_avatar}", str(server.owner.avatar.url) if server.owner and server.owner.avatar else " ")
-                .replace("{server}", getattr(server, "name", "{server}") if server else "{server}")
-                .replace("{server_icon}", str(server.icon.url) if server and server.icon else " ")
-                .replace("{channel}", getattr(channel, "mention", "{channel}") if channel else " ")
-                # 👇 NEW: turn the literal "\n" into an actual newline
-                .replace("\\n", "\n")
-                .replace("\in", "\u200B")
-                .replace("{member_count}", str(server.member_count) if server else "0")
-            )
+            
+            now_ts = int(datetime.utcnow().timestamp())
+            res = text
+            
+            # User Tokens
+            if user:
+                res = res.replace("{user}", user.mention)
+                res = res.replace("{user_mention}", user.mention)
+                res = res.replace("{username}", user.name)
+                res = res.replace("{display_name}", user.display_name)
+                res = res.replace("{user_id}", str(user.id))
+                res = res.replace("{user_tag}", f"{user.name}#{user.discriminator}" if user.discriminator != "0" else user.name)
+                res = res.replace("{user_created_at}", f"<t:{int(user.created_at.timestamp())}:R>")
+                if isinstance(user, discord.Member) and user.joined_at:
+                    res = res.replace("{user_joined_at}", f"<t:{int(user.joined_at.timestamp())}:R>")
+                else:
+                    res = res.replace("{user_joined_at}", "`Not Member`")
+                res = res.replace("{avatar}", user.display_avatar.url)
+            
+            # Server Tokens
+            if server:
+                res = res.replace("{server}", server.name)
+                res = res.replace("{server_name}", server.name)
+                res = res.replace("{server_id}", str(server.id))
+                res = res.replace("{server_icon}", server.icon.url if server.icon else "")
+                res = res.replace("{member_count}", str(server.member_count))
+                res = res.replace("{boost_count}", str(server.premium_subscription_count))
+                res = res.replace("{boost_tier}", str(server.premium_tier))
+                if server.owner:
+                    res = res.replace("{server_owner}", server.owner.mention)
+                    res = res.replace("{server_owner_name}", server.owner.name)
+                    res = res.replace("{server_owner_id}", str(server.owner.id))
+                    res = res.replace("{owner_avatar}", server.owner.display_avatar.url)
+                else:
+                    res = res.replace("{server_owner}", "`None`")
+                    res = res.replace("{server_owner_name}", "`None`")
+                    res = res.replace("{server_owner_id}", "`None`")
+                    res = res.replace("{owner_avatar}", "")
+
+            # Channel Tokens
+            if channel:
+                res = res.replace("{channel}", getattr(channel, "mention", ""))
+                res = res.replace("{channel_mention}", getattr(channel, "mention", ""))
+                res = res.replace("{channel_name}", getattr(channel, "name", ""))
+                res = res.replace("{channel_id}", str(getattr(channel, "id", "")))
+            
+            # Time & Date Tokens
+            res = res.replace("{current_timestamp}", str(now_ts))
+            res = res.replace("{current_time}", f"<t:{now_ts}:F>")
+            res = res.replace("{current_date}", f"<t:{now_ts}:d>")
+            
+            # Formatting Tokens
+            res = res.replace("\\n", "\n")
+            res = res.replace("\\in", "\u200B")
+            res = res.replace("{newline}", "\n")
+            res = res.replace("{blank}", "\u200B")
+            
+            return res
+
+        color_str = preset.get("color", "#5865F2").strip()
+        if color_str and not color_str.startswith("#"):
+            color_str = f"#{color_str}"
+        try:
+            color = discord.Color.from_str(color_str)
+        except ValueError:
+            color = discord.Color.from_str("#5865F2")
 
         embed = discord.Embed(
             title=replace_tokens(preset.get("title")),
             description=replace_tokens(preset.get("description")),
-            color=discord.Color.from_str(preset.get("color", "#5865F2")),
+            color=color,
             timestamp=datetime.utcnow(),
         )
         if thumb := preset.get("thumbnail"):
             url = replace_tokens(thumb)
-            if url != " ":
+            if url.strip():
                 embed.set_thumbnail(url=url)
-
+ 
         if img := preset.get("image"):
             url = replace_tokens(img)
-            if url != " ":
+            if url.strip():
                 embed.set_image(url=url)
-
+ 
         if footer := preset.get("footer"):
             embed.set_footer(
                 text=replace_tokens(footer.get("text", "")),

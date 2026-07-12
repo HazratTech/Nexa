@@ -22,73 +22,6 @@ categories:
         output: "The bot provides the URL of the first YouTube video found."
         permissions: "everyone"
 
-  - name: "Fun"
-    id: "fun"
-    emoji: "😎"
-    description: "Entertaining commands to spice up your server"
-    commands:
-      - name: "/meme"
-        description: "Fetch a random trending meme from popular subreddits"
-        usage: "/meme"
-        output: "An embed containing a random meme image and its title."
-        permissions: "everyone"
-
-      - name: "/joke"
-        description: "Tells a random joke with a short delay for the punchline"
-        usage: "/joke"
-        output: "Two messages: the setup followed by the punchline after a 3-second pause."
-        permissions: "everyone"
-
-      - name: "/gif"
-        description: "Retrieve a random GIF from GIPHY based on a search tag"
-        usage: "/gif tag:<tag>"
-        args:
-          - name: "tag"
-            type: "string"
-            description: "The category or topic for the GIF"
-            required: true
-            example: "dancing"
-        output: "A direct link to a random GIF matching your tag."
-        permissions: "everyone"
-
-      - name: "/pokemon"
-        description: "Displays information and images of a random Pokemon"
-        usage: "/pokemon"
-        output: "An embed with the Pokemon's name, species, types, and images."
-        permissions: "everyone"
-
-      - name: "/cat"
-        description: "Get a random cute cat image along with breed details"
-        usage: "/cat user:[member]"
-        args:
-          - name: "user"
-            type: "member"
-            description: "Optional user to mention when sending the cat"
-            required: false
-        output: "A detailed embed with a cat image, breed name, and description."
-        permissions: "everyone"
-
-      - name: "/dog"
-        description: "Get a random adorable dog image with breed information"
-        usage: "/dog user:[member]"
-        args:
-          - name: "user"
-            type: "member"
-            description: "Optional user to mention when sending the dog"
-            required: false
-        output: "An embed with a dog image and its temperament traits."
-        permissions: "everyone"
-
-      - name: "/fact"
-        description: "Receive a random interesting fact to expand your knowledge"
-        usage: "/fact user:[member]"
-        args:
-          - name: "user"
-            type: "member"
-            description: "Optional user to mention when sending the fact"
-            required: false
-        output: "A clean embed presenting a random piece of trivia."
-        permissions: "everyone"
 
   - name: "Games"
     id: "games"
@@ -260,33 +193,41 @@ categories:
     emoji: "🛡️"
     description: "Tools for keeping the server safe and orderly"
     commands:
-      - name: "/toggle_moderation"
-        description: "Enable or disable the entire manual moderation command system"
-        usage: "/toggle_moderation"
-        output: "A confirmation message stating the new status of the moderation system."
+      - name: "/moderation_config"
+        description: "Launch the interactive dashboard to configure all moderation settings"
+        usage: "/moderation_config"
+        output: "Pops up an interactive dashboard view with dropdowns and buttons."
         permissions: "Administrator"
 
       - name: "/ban"
         description: "Ban a member from the server for violating rules"
-        usage: "/ban member:<member>"
+        usage: "/ban member:<member> [reason]:[text]"
         args:
           - name: "member"
             type: "member"
             description: "The user to ban"
             required: true
+          - name: "reason"
+            type: "string"
+            description: "Optional reasoning for the ban"
+            required: false
         output: "The user is removed and banned, and a confirmation is sent."
-        permissions: "Manage Messages"
+        permissions: "Ban Members"
 
       - name: "/unban"
         description: "Unban a previously banned user from the server"
-        usage: "/unban member:<member>"
+        usage: "/unban user:<user> [reason]:[text]"
         args:
-          - name: "member"
-            type: "member"
-            description: "The user to unban (requires mention or ID)"
+          - name: "user"
+            type: "user"
+            description: "The user to unban"
             required: true
+          - name: "reason"
+            type: "string"
+            description: "Optional reasoning for the unban"
+            required: false
         output: "The user is removed from the ban list."
-        permissions: "Manage Server"
+        permissions: "Ban Members"
 
       - name: "/kick"
         description: "Kick a user from the server"
@@ -368,16 +309,7 @@ categories:
         output: "The user's roles are restored as before they were muted."
         permissions: "Mute Members"
 
-      - name: "/set_mute_role"
-        description: "Configure which role is used for muting users"
-        usage: "/set_mute_role role:<role>"
-        args:
-          - name: "role"
-            type: "role"
-            description: "The role to use as the mute role"
-            required: true
-        output: "Confirmation that the role has been set and applied to channels."
-        permissions: "Administrator"
+
 
       - name: "/slowmode"
         description: "Set a message delay (slowmode) for a channel to prevent spam"
@@ -590,3 +522,26 @@ categories:
         usage: "/embed_preset_delete name:<text>"
         output: "Deletion confirmation."
         permissions: "Administrator"
+
+  - name: "Anti-Spam"
+    id: "antispam"
+    emoji: "🛡️"
+    description: "Dyno/Wick style real-time anti-spam sliding-window configuration"
+    commands:
+      - name: "/antispam_config"
+        description: "Launch the interactive setup dashboard to customize all anti-spam settings"
+        usage: "/antispam_config"
+        output: "Pops up an interactive dashboard view with dropdowns and buttons."
+        permissions: "Administrator"
+
+  - name: "Anti-Raid"
+    id: "antiraid"
+    emoji: "🚨"
+    description: "Protection against join floods, bot wave raids, and suspicious accounts"
+    commands:
+      - name: "/antiraid_config"
+        description: "Launch the interactive setup dashboard to customize all anti-raid settings and trigger manual lockdown/unlock"
+        usage: "/antiraid_config"
+        output: "Pops up an interactive dashboard view with dropdowns and buttons."
+        permissions: "Administrator"
+

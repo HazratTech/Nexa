@@ -17,9 +17,6 @@ class AutoModCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.infractions:AsyncIOMotorCollection = Database.user_infractions()
-        # In-memory stores for spam/duplicate detection (replaces Redis)
-        self._last_messages: dict[str, str] = {}      # "{guild_id}:{user_id}" -> last message content
-        self._spam_counters: dict[str, list] = {}      # "{guild_id}:{user_id}" -> [timestamp, ...]
 
     @commands.hybrid_command(name="toggle_automod", description="Enable AutoMod")
     @commands.has_permissions(manage_messages=True)
@@ -200,40 +197,6 @@ class AutoModCog(commands.Cog):
                 if not AutoModServices.is_ignored(message, settings.filters.emoji_spam):
                     await AutoModServices.handle_action(message, settings.filters.emoji_spam, "Too many emojis", settings=settings)
                     return
-
-        # 7. Repeated Messages / Duplicate Text
-        if settings.filters.repeated_messages.enabled or settings.filters.duplicate_text.enabled:
-            # Use in-memory dict to check last message
-            mem_key = f"{guild_id}:{message.author.id}"
-            last_content = self._last_messages.get(mem_key)
-            
-            if last_content and last_content == message.content:
-                if not AutoModServices.is_ignored(message, settings.filters.repeated_messages):
-                     await AutoModServices.handle_action(message, settings.filters.repeated_messages, "Repeated message", settings=settings)
-                     return
-            
-            # Save current message
-            self._last_messages[mem_key] = message.content
-
-        # 8. Anti-Spam (Rate Limit)
-        if settings.filters.spam.enabled:
-            import time
-            spam_key = f"{guild_id}:{message.author.id}"
-            now = time.time()
-            window = 5  # 5 second window
-            
-            # Get or create timestamp list, prune old entries
-            timestamps = self._spam_counters.get(spam_key, [])
-            timestamps = [t for t in timestamps if now - t < window]
-            timestamps.append(now)
-            self._spam_counters[spam_key] = timestamps
-            
-            max_messages = 5
-            
-            if len(timestamps) > max_messages:
-                 if not AutoModServices.is_ignored(message= message, filter_config= settings.filters.spam):
-                     await AutoModServices.handle_action(message, settings.filters.spam, "Sending messages too fast", settings=settings)
-                     return
 
 
 

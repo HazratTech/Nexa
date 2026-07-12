@@ -179,7 +179,7 @@ class Logs(commands.Cog):
         await interaction.followup.send(f"Log channel set to {channel}")
 
     @log.command(name="message", description="Set log channel message actions")
-    async def mod_logs(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+    async def message_logs(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
         await interaction.response.defer(ephemeral=True)
         if not channel:
             channel = interaction.channel

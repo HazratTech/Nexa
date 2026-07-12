@@ -7,6 +7,7 @@ from discord.ext.commands import AutoShardedBot
 from loguru import logger
 
 from core.database import Database
+from core.redis import RedisManager
 
 
 class NexaBot(AutoShardedBot):
@@ -27,6 +28,7 @@ class NexaBot(AutoShardedBot):
 
         ## Connect to Database
         await Database.connect()
+        await RedisManager.connect()
 
         ## Load Modules
         await self.load_modules()
@@ -79,5 +81,6 @@ class NexaBot(AutoShardedBot):
 
     async def close(self) -> None:
         self.scheduler.shutdown()
+        await RedisManager.close()
         await Database.close()
-        await self.close()
+        await super().close()

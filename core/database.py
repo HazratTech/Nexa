@@ -77,4 +77,20 @@ class Database:
     def moderation_logs(cls):
         return cls.get_db().moderation_logs
 
+    @classmethod
+    def antispam_settings(cls):
+        return cls.get_db().antispam_settings
+
+    @classmethod
+    def antiraid_settings(cls):
+        return cls.get_db().antiraid_settings
+
+    @classmethod
+    def antispam_logs(cls):
+        return cls.get_db().antispam_logs
+
+    @classmethod
+    def antiraid_incidents(cls):
+        return cls.get_db().antiraid_incidents
+
 

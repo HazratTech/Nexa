@@ -1,6 +1,6 @@
 import asyncio
 from datetime import timedelta
-from typing import Union
+from typing import Union, Optional
 
 import discord
 from discord import app_commands
@@ -25,54 +25,60 @@ class ModerationCommandsCog(commands.Cog):
         self.collection: AsyncIOMotorCollection = AutoModServices.get_guild_settings_collection()
         self.mod_settings_collection: AsyncIOMotorCollection = Database.moderation_settings()
 
-    @app_commands.command(name="toggle_moderation", description="Enable/Disable Moderation System")
+    @app_commands.command(name="moderation_config", description="Interactive dashboard to configure moderation settings")
     @app_commands.default_permissions(administrator=True)
     @app_commands.guild_only()
-    async def toggle_moderation(self, interaction: commands.Context):
-        guild_id = interaction.guild_id
-        settings = await ModerationService.get_mod_settings(guild_id=guild_id)
-        new_state = not settings.is_moderation_settings_enabled
-
-        await self.mod_settings_collection.update_one(
-            {"guild_id": guild_id},
-            {"$set": {"is_moderation_settings_enabled": new_state}},
-            upsert=True
-        )
-
-        status = "enabled" if new_state else "disabled"
-        await interaction.response.send_message(f"🛡️ Moderation system has been **{status}**.")
+    async def moderation_config(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        from modules.moderation.ui import ModerationDashboardView
+        view = ModerationDashboardView(interaction.guild_id)
+        await view.initialize()
+        await interaction.followup.send(view=view)
 
     @app_commands.command(name="ban", description="Ban a user")
     @app_commands.default_permissions(ban_members=True)
     @app_commands.guild_only()
     @app_commands.check(moderation_enabled_predicate)
     @hierarchy_check(action="ban")
-    async def ban(self, interaction: discord.Interaction, member: discord.Member):
+    async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
         await interaction.response.defer()
 
         if not member:
             await interaction.followup.send(f"If you are not trying to ban a ghost, please mention a member.")
             return
 
+        reason_text = reason or "No reason provided."
         try:
-            await member.ban(reason=f"For violating discord server rules.")
-            await interaction.followup.send(f"{member.mention} has been banned from this server for good.")
-            task = []
-            task.append(
-                ModerationService.send_logs(
-                    guild=interaction.guild,
-                    action="Ban",
-                    moderator=interaction.user,
-                    target=member,
+            try:
+                dm_embed = discord.Embed(
+                    title=f"You have been banned from {interaction.guild.name}",
+                    description=f"**Reason:** {reason_text}",
+                    color=discord.Color.red(),
+                    timestamp=discord.utils.utcnow()
                 )
+                await member.send(embed=dm_embed)
+            except discord.Forbidden:
+                pass
+
+            await member.ban(reason=f"[{interaction.user}] {reason_text}")
+            await interaction.followup.send(f"{member.mention} has been banned from this server.")
+
+            # Record in DB
+            await ModerationService.record_moderation_logs(
+                guild_id=interaction.guild.id,
+                offender_id=member.id,
+                moderator_id=interaction.user.id,
+                action_type="Ban",
+                reason=reason_text
             )
-            task.append(
-                ModerationService.send_logs(
-                    guild=interaction.guild,
-                    action="Ban",
-                    moderator=interaction.user,
-                    target=member,
-                )
+
+            # Send logs
+            await ModerationService.send_logs(
+                guild=interaction.guild,
+                action="Ban",
+                moderator=interaction.user,
+                target=member,
+                reason=reason_text
             )
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to ban this member.")
@@ -83,19 +89,23 @@ class ModerationCommandsCog(commands.Cog):
     @app_commands.default_permissions(ban_members=True)
     @app_commands.guild_only()
     @app_commands.check(moderation_enabled_predicate)
-    @hierarchy_check(action="unban")
-    async def unban(self, interaction: discord.Interaction, member: discord.Member):
+    async def unban(self, interaction: discord.Interaction, user: discord.User, reason: Optional[str] = None):
         await interaction.response.defer()
 
-        if not member:
-            await interaction.followup.send(f"Please provide a valid user to unban.")
-            return
-
+        reason_text = reason or "No reason provided."
         try:
-            await interaction.guild.unban(member, reason=f"We decided to unban this user")
-            await interaction.followup.send(f"{member.mention} has been unbanned from this server.")
+            await interaction.guild.unban(user, reason=f"[{interaction.user}] {reason_text}")
+            await interaction.followup.send(f"{user.mention} has been unbanned from this server.")
+
+            await ModerationService.send_logs(
+                guild=interaction.guild,
+                action="Unban",
+                moderator=interaction.user,
+                target=user,
+                reason=reason_text
+            )
         except discord.NotFound:
-            await interaction.followup.send(f"❌ {member.name} is not banned in this server.")
+            await interaction.followup.send(f"❌ {user.name} is not banned in this server.")
         except discord.Forbidden:
             await interaction.followup.send("❌ I do not have permission to unban this user.")
         except Exception as e:
@@ -109,61 +119,50 @@ class ModerationCommandsCog(commands.Cog):
     async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: str = None):
         await interaction.response.defer()
 
-        # --- Hierarchy checks ---
         if member == interaction.user:
             await interaction.followup.send(f"Why would you kick yourself? 😅", ephemeral=True)
             return
 
-        if not member:
-            await interaction.followup.send(f"Please tag a user to kick.", ephemeral=True)
-            return
-
-        ## -- Notify user via DM before kicking----\
         reason_text = reason or "No reason provided."
         try:
-            embed = embed_builder(
-                title=f"You have been kicked from {interaction.guild.name}",
-                color=discord.Color.orange(),
-                timestamp=discord.utils.utcnow(),
-            )
-            embed.add_field(name="Reason", value=reason_text, inline=False)
-            embed.add_field(name="Moderator", value=interaction.user.mention, inline=False)
-            icon_url = interaction.guild.icon.url if interaction.guild.icon else None
-            embed.set_footer(text=interaction.guild.name, icon_url=icon_url)
-            await member.send(embed=embed)
-            dm_sent = True
-        except discord.Forbidden:
-            dm_sent = False
+            try:
+                embed = embed_builder(
+                    title=f"You have been kicked from {interaction.guild.name}",
+                    color=discord.Color.orange(),
+                    timestamp=discord.utils.utcnow(),
+                )
+                embed.add_field(name="Reason", value=reason_text, inline=False)
+                embed.add_field(name="Moderator", value=interaction.user.mention, inline=False)
+                icon_url = interaction.guild.icon.url if interaction.guild.icon else None
+                embed.set_footer(text=interaction.guild.name, icon_url=icon_url)
+                await member.send(embed=embed)
+            except discord.Forbidden:
+                pass
 
-        try:
             await member.kick(reason=f"[{interaction.user}] {reason_text}")
+            await interaction.followup.send(f"{member.mention} has been kicked from this server.")
+
+            # Record in DB
+            await ModerationService.record_moderation_logs(
+                guild_id=interaction.guild.id,
+                offender_id=member.id,
+                moderator_id=interaction.user.id,
+                action_type="Kick",
+                reason=reason_text
+            )
+
+            # Send logs
+            await ModerationService.send_logs(
+                guild=interaction.guild,
+                action="Kick",
+                moderator=interaction.user,
+                target=member,
+                reason=reason_text
+            )
         except discord.Forbidden:
             await interaction.followup.send(f"Failed to kick the user due to lack of permissions", ephemeral=True)
-            return
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}")
-
-        await interaction.followup.send(f"{member.mention} has been kicked from this server.")
-
-        task = []
-        task.append(
-            ModerationService.send_logs(
-                guild=interaction.guild,
-                action="Kick",
-                moderator=interaction.user,
-                target=member,
-                reason=reason_text
-            )
-        )
-        task.append(
-            ModerationService.send_logs(
-                guild=interaction.guild,
-                action="Kick",
-                moderator=interaction.user,
-                target=member,
-                reason=reason_text
-            )
-        )
 
     @app_commands.command(name="timeout", description="Timeout a user")
     @app_commands.default_permissions(mute_members=True)
@@ -200,29 +199,27 @@ class ModerationCommandsCog(commands.Cog):
 
             await member.timeout(time_delta, reason=reason_text)
             await interaction.followup.send(f"{member.mention} has been timed out from the server.")
+            
+            # Record in DB
+            await ModerationService.record_moderation_logs(
+                guild_id=interaction.guild_id,
+                offender_id=member.id,
+                moderator_id=interaction.user.id,
+                reason=reason_text,
+                action_type="Timeout"
+            )
+            # Send logs
+            await ModerationService.send_logs(
+                guild=interaction.guild,
+                action="Timeout",
+                moderator=interaction.user,
+                target=member,
+                reason=reason_text
+            )
         except discord.Forbidden:
             await interaction.followup.send(f"Failed to timeout the user due to lack of permissions", ephemeral=True)
-
-        task = []
-        task.append(ModerationService.record_moderation_logs(
-            guild_id=interaction.guild_id,
-            offender_id=member.id,
-            moderator_id=interaction.user.id,
-            reason=reason_text,
-            action_type="Mute"
-        ))
-        task.append(ModerationService.send_logs(
-            guild=interaction.guild,
-            action="Timeout",
-            moderator=interaction.user,
-            target=member,
-            reason=reason_text
-        ))
-
-        results = await asyncio.gather(*task, return_exceptions=True)
-        for res in results:
-            if isinstance(res, Exception):
-                logger.error(f"Error occurred during the timeout action: {res}")
+        except Exception as e:
+            await interaction.followup.send(f"❌ An error occurred: {e}")
 
     @app_commands.command(name="remove_timeout", description="Remove a user timed out")
     @app_commands.default_permissions(mute_members=True)
@@ -239,16 +236,18 @@ class ModerationCommandsCog(commands.Cog):
             reason_text = reason or "No reason provided."
             await member.timeout(None, reason=reason_text)
             await interaction.followup.send(f"{member.mention} has been removed from the server.")
+            
+            await ModerationService.send_logs(
+                guild=interaction.guild,
+                action="Remove Timeout",
+                moderator=interaction.user,
+                target=member,
+                reason=reason_text
+            )
         except discord.Forbidden:
             await interaction.followup.send(f"Failed to remove the user due to lack of permissions")
-
-        await ModerationService.send_logs(
-            guild=interaction.guild,
-            action="Remove Timeout",
-            moderator=interaction.user,
-            target=member,
-            reason=reason_text
-        )
+        except Exception as e:
+            await interaction.followup.send(f"❌ An error occurred: {e}")
 
     @app_commands.command(name="mute", description="Mute a user")
     @app_commands.default_permissions(mute_members=True)
@@ -286,13 +285,21 @@ class ModerationCommandsCog(commands.Cog):
 
             await member.edit(roles=[mute_role], reason=reason_text)
             await interaction.followup.send(f"{member.mention} has been muted from the server.")
-            asyncio.create_task(ModerationService.record_moderation_logs(
+            
+            await ModerationService.record_moderation_logs(
                 guild_id=_guild.id,
                 offender_id=member.id,
                 moderator_id=interaction.user.id,
                 reason=reason_text,
                 action_type="Mute"
-            ))
+            )
+            await ModerationService.send_logs(
+                guild=_guild,
+                action="Mute",
+                moderator=interaction.user,
+                target=member,
+                reason=reason_text
+            )
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}")
 
@@ -321,48 +328,18 @@ class ModerationCommandsCog(commands.Cog):
             user_roles = await ModerationService.get_user_roles_from_database(user_id=member.id, guild=guild)
             await member.edit(roles=user_roles or [], reason=reason_text)
             await interaction.followup.send(f"{member.mention} has been unmuted from the server.")
+
+            await ModerationService.send_logs(
+                guild=guild,
+                action="UnMute",
+                moderator=interaction.user,
+                target=member,
+                reason=reason_text
+            )
         except Exception as e:
             await interaction.followup.send(f"An error occurred: {e}")
 
-    @app_commands.command(name="set_mute_role", description="Set mute role")
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.guild_only()
-    async def set_mute_role(self, interaction: discord.Interaction, role: discord.Role):
-        await interaction.response.defer()
 
-        guild = interaction.guild
-        if guild is None:
-            return
-
-        try:
-            if role >= guild.me.top_role:
-                await interaction.followup.send("I cannot manage this role due to role hierarchy.")
-                return
-
-            await GuildService.update_guild_settings(
-                guild_id=guild.id,
-                **{"roles.mute_role_id": role.id}
-            )
-
-            # ✅ Always apply to channels regardless of DB update result
-            await interaction.followup.send(
-                f"Mute role set to {role.mention}. Applying to all channels in background...")
-
-            task = asyncio.create_task(
-                ModerationService.apply_mute_role_to_channels(mute_role=role, guild=guild)
-            )
-
-            def on_done(t: asyncio.Task):
-                if t.exception():
-                    logger.error(f"Failed to apply mute role to channels: {t.exception()}")
-
-            task.add_done_callback(on_done)
-
-        except discord.Forbidden:
-            await interaction.followup.send("I don't have permission to manage channel permissions.")
-        except Exception as e:
-            logger.error(f"Failed to set mute role: {e}")
-            await interaction.followup.send(f"An error occurred: {e}")
 
     @app_commands.command(name="slowmode", description="Set slowmode delay for a channel")
     @app_commands.default_permissions(administrator=True)

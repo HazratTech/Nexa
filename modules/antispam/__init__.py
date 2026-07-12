@@ -1,0 +1,1 @@
+# Nexa AntiSpam module

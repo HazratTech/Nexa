@@ -7,16 +7,15 @@ load_dotenv()
 class Settings(BaseSettings):
     discord_token: str
     pixabay_api: str
-    api_ninja: str
-    giphy_api: str
-    cat_api_key: str
-    dog_api_key:str
     mongo_connection: str
     database_name: str
     perspective_api_key: str
     sightengine_api_user: str
     sightengine_api_secret: str
     openai_api_key: str
+    redis_host: str
+    redis_port: int
+    redis_url: str = "redis://localhost:6379/0"
 
     class Config:
         env_file = ".env"
